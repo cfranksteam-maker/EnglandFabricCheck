@@ -1,42 +1,45 @@
-import json, urllib.request, urllib.error, urllib.parse
+import json, urllib.request, urllib.error
 ROOT='https://www.englandfurniture.com'
 UA='EnglandFabricCheck-Android/1.6'
 
 def get(path):
-    u=ROOT+path
-    req=urllib.request.Request(u,headers={'User-Agent':UA,'Accept':'application/json,text/plain,*/*','Referer':ROOT+'/'})
-    try:
-        with urllib.request.urlopen(req,timeout=25) as r:
-            return r.status,json.loads(r.read().decode('utf-8'))
-    except urllib.error.HTTPError as e:
-        body=e.read().decode('utf-8','replace')
-        print('HTTPERR',e.code,path,body[:300])
-        return e.code,{}
+    req=urllib.request.Request(ROOT+path,headers={'User-Agent':UA,'Accept':'application/json,text/plain,*/*','Referer':ROOT+'/'})
+    with urllib.request.urlopen(req,timeout=30) as r:
+        return json.loads(r.read().decode('utf-8'))
 
-def summarize(label,path):
-    st,data=get(path)
-    results=data.get('results') if isinstance(data,dict) else None
-    products=(data.get('products') or {}) if isinstance(data,dict) else {}
-    pres=products.get('results') or [] if isinstance(products,dict) else []
-    arr=results if isinstance(results,list) else pres
-    print('\nCASE',label,'HTTP',st,'PATH',path)
-    if isinstance(data,dict):
-        print(' keys',list(data.keys())[:20])
-        print(' total',data.get('total'),products.get('total') if isinstance(products,dict) else None,'page',data.get('page'),'page_size',data.get('page_size'),'has_next',data.get('has_next_page'))
-    print(' result_count',len(arr))
-    for p in arr[:5]:
-        if isinstance(p,dict): print('  ',p.get('name'),p.get('sku'),p.get('feature_set'))
+def feature_idx(p):
+    raw=p.get('feature_set')
+    if isinstance(raw,dict): return raw.get('idx')
+    if isinstance(raw,str):
+        try: return json.loads(raw).get('idx')
+        except Exception: return ''
+    return ''
 
-cases=[
- ('products_default','/api/matrix/v2/england/products/?include=full'),
- ('products_ps100','/api/matrix/v2/england/products/?include=full&page_size=100'),
- ('products_fabric','/api/matrix/v2/england/products/?include=full&feature_set=fabric&page_size=100'),
- ('products_feature_idx','/api/matrix/v2/england/products/?include=full&feature_set_idx=fabric&page_size=100'),
- ('search_empty','/api/matrix/v2/england/search/?q=&page_size=100'),
- ('search_fabric','/api/matrix/v2/england/search/?q=fabric&page_size=100'),
-]
-for label,path in cases: summarize(label,path)
+def barcode_of(p):
+    for bucket in ('visual_assets','attributes'):
+        vals=p.get(bucket) or []
+        if isinstance(vals,str):
+            try: vals=json.loads(vals)
+            except Exception: vals=[]
+        if not isinstance(vals,list): continue
+        for item in vals:
+            if not isinstance(item,dict): continue
+            if (item.get('feature_idx') or item.get('code'))=='barcode':
+                return str(item.get('value') or item.get('attribute_value') or '')
+    return ''
 
-# Confirm known barcodes as a sanity check.
-for code in ('8858','9606','9528'):
-    summarize('search_'+code,'/api/matrix/v2/england/search/?q='+code)
+seen=set(); fabrics={}
+for page in range(1,21):
+    data=get(f'/api/matrix/v2/england/products/?include=full&page_size=100&page={page}')
+    results=data.get('results') or []
+    skus=[str(p.get('sku') or '') for p in results]
+    new=sum(1 for s in skus if s and s not in seen)
+    for p in results:
+        sku=str(p.get('sku') or '')
+        if sku: seen.add(sku)
+        if feature_idx(p)=='fabric':
+            bc=barcode_of(p)
+            if bc: fabrics[bc]=p.get('name') or sku
+    print('PAGE',page,'results',len(results),'new',new,'has_next',data.get('has_next_page'),'unique_products',len(seen),'fabrics',len(fabrics),'8858',fabrics.get('8858'))
+    if not results or new==0: break
+print('FINAL products',len(seen),'fabrics',len(fabrics),'8858',fabrics.get('8858'),'9606',fabrics.get('9606'),'9528',fabrics.get('9528'))
