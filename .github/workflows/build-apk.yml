@@ -6,6 +6,7 @@ on:
     branches: [ main ]
     paths:
       - 'app/**'
+      - 'catalog/catalog.json'
       - 'build.gradle'
       - 'settings.gradle'
       - 'gradle.properties'
@@ -21,6 +22,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Bundle latest official England catalog
+        run: |
+          mkdir -p app/src/main/assets
+          cp catalog/catalog.json app/src/main/assets/catalog.json
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
