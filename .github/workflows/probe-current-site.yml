@@ -1,0 +1,19 @@
+name: Probe England Current Site
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/probe_current_site.py'
+      - '.github/workflows/probe-current-site.yml'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Probe current England site
+        run: python scripts/probe_current_site.py
