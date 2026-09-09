@@ -2,10 +2,15 @@ name: Build England Catalog
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '15 11 * * *'
   push:
     paths:
       - 'scripts/build_catalog.py'
       - '.github/workflows/scrape-catalog.yml'
+
+permissions:
+  contents: write
 
 jobs:
   scrape:
@@ -15,10 +20,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Scrape current England catalog
+
+      - name: Scrape official England Furniture catalog
         run: python scripts/build_catalog.py
+
+      - name: Publish validated catalog in repository
+        run: |
+          mkdir -p catalog
+          cp catalog.json catalog/catalog.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add catalog/catalog.json
+          if git diff --cached --quiet; then
+            echo "Catalog unchanged"
+          else
+            git commit -m "Update official England fabric catalog"
+            git push
+          fi
+
       - name: Upload catalog JSON
         uses: actions/upload-artifact@v4
         with:
-          name: england-current-catalog
+          name: england-official-current-catalog
           path: catalog.json
