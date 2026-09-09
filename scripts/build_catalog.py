@@ -5,7 +5,7 @@ import urllib.request
 import html as htmlmod
 from datetime import datetime, timezone
 
-BASE = 'https://www.englandfurniture.com/fabric/all/cover-type.aspx?page={}'
+BASE = 'https://englandfurniturestore.microdinc.com/fabric/all/cover-type.aspx?page={}'
 UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
 
 
@@ -14,7 +14,7 @@ def fetch(url):
         'User-Agent': UA,
         'Accept': 'text/html,application/xhtml+xml',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.englandfurniture.com/',
+        'Referer': 'https://englandfurniturestore.microdinc.com/',
         'Cache-Control': 'no-cache',
     })
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -33,7 +33,6 @@ def strip_html(s):
 
 def parse(text):
     flat = re.sub(r'\s+', ' ', strip_html(text))
-    # England's catalog cards render as: CODE NAME View Item
     pat = re.compile(
         r'\b(\d{4,6})\b\s+([A-Z][A-Z0-9 &\'./()\-]{2,80}?)\s+View Item\b',
         re.I,
@@ -61,7 +60,7 @@ for page in range(1, 41):
     if page == 1:
         reported_total = detect_total_items(raw)
     page_records = parse(raw)
-    print(f'England Furniture page {page}: {len(page_records)} records', file=sys.stderr)
+    print(f'England official kiosk page {page}: {len(page_records)} records', file=sys.stderr)
 
     before = len(records)
     records.update(page_records)
@@ -77,19 +76,17 @@ for page in range(1, 41):
     if reported_total and len(records) >= reported_total:
         break
 
-# Never publish an incomplete/redirect page as a real catalog.
 if len(records) < 450:
-    raise SystemExit(f'Refusing official England catalog with only {len(records)} records')
+    raise SystemExit(f'Refusing England official kiosk catalog with only {len(records)} records')
 
-# If England reports a total, allow a small difference for duplicates/markup, but not a large gap.
 if reported_total and len(records) < reported_total - 10:
     raise SystemExit(
         f'Refusing incomplete England catalog: parsed {len(records)} of reported {reported_total}'
     )
 
 payload = {
-    'source': 'England Furniture official website',
-    'source_url': 'https://www.englandfurniture.com/fabric/all/cover-type.aspx',
+    'source': 'England Furniture official in-store catalog',
+    'source_url': 'https://englandfurniturestore.microdinc.com/fabric/all/cover-type.aspx',
     'generated_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
     'reported_total': reported_total,
     'count': len(records),
