@@ -12,6 +12,7 @@ import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -42,18 +43,11 @@ public class CatalogRepository {
     private static final String KEY_SYNC = "last_sync";
     private static final String KEY_SOURCE = "source";
 
-    // Re-check at most once per day unless the user presses Refresh.
     private static final long FRESH_MS = 24L * 60L * 60L * 1000L;
     private static final int MIN_EXPECTED_ENGLAND_FABRICS = 350;
 
-    // England's legacy public fabric catalog URL. In September 2026 the vendor
-    // site began redirecting this route to the new homepage, so this is tried
-    // first but must pass strict validation before it is trusted.
     private static final String OFFICIAL_PAGE =
             "https://www.englandfurniture.com/fabric/cover-type.aspx?page=%d";
-
-    // Live dealer catalog mirror that receives England's fabric feed. This is
-    // used only when England's own fabric-list route is unavailable.
     private static final String MIRROR_PAGE =
             "https://www.frazierandsonfurniture.com/fabric/cover-type.aspx?page=%d";
 
@@ -106,9 +100,7 @@ public class CatalogRepository {
                     callback.onSuccess(official.records.size(), "England Furniture");
                     return;
                 }
-            } catch (Exception ignored) {
-                // Fall through to the live dealer mirror.
-            }
+            } catch (Exception ignored) {}
 
             try {
                 CatalogDownload mirror = downloadCatalog(MIRROR_PAGE, false);
@@ -125,12 +117,9 @@ public class CatalogRepository {
 
     private CatalogDownload downloadCatalog(String template, boolean official) throws Exception {
         Map<String, FabricRecord> found = new HashMap<>();
-
         Document first = fetch(String.format(Locale.US, template, 1));
         Map<String, FabricRecord> firstRecords = parseRecords(first);
 
-        // England's retired route currently returns the new homepage with HTTP 200.
-        // Never accept that as a valid empty catalog.
         if (official && !looksLikeFabricCatalog(first, firstRecords)) {
             throw new Exception("England's legacy fabric-list page is no longer serving a catalog.");
         }
@@ -142,10 +131,8 @@ public class CatalogRepository {
 
         for (int page = 2; page <= maxPage; page++) {
             Document doc = fetch(String.format(Locale.US, template, page));
-            Map<String, FabricRecord> pageRecords = parseRecords(doc);
-            found.putAll(pageRecords);
+            found.putAll(parseRecords(doc));
         }
-
         return new CatalogDownload(found);
     }
 
@@ -161,7 +148,7 @@ public class CatalogRepository {
     private boolean looksLikeFabricCatalog(Document doc, Map<String, FabricRecord> parsed) {
         String body = doc.body() == null ? "" : doc.body().text();
         return parsed.size() >= 10 && body.contains("View Item") &&
-                (body.toLowerCase(Locale.US).contains("fabrics") || body.toLowerCase(Locale.US).contains("fabric"));
+                body.toLowerCase(Locale.US).contains("fabric");
     }
 
     private int detectMaxPage(Document doc) {
@@ -178,11 +165,6 @@ public class CatalogRepository {
         return max;
     }
 
-    /**
-     * Both England's old catalog and the dealer mirror render cards in the form:
-     * NAME ... 9528 BENNETT JUNGLE View Item.  We intentionally key off the
-     * repeated code/name/View Item sequence instead of fragile CSS class names.
-     */
     private Map<String, FabricRecord> parseRecords(Document doc) {
         Map<String, FabricRecord> out = new HashMap<>();
         if (doc.body() == null) return out;
@@ -199,7 +181,6 @@ public class CatalogRepository {
             }
         }
 
-        // DOM fallback: some pages wrap the code and name in separate anchors.
         if (out.size() < 5) {
             Map<String, List<String>> textsByHref = new HashMap<>();
             for (Element a : doc.select("a[href*='iteminformation.aspx']")) {
@@ -262,7 +243,9 @@ public class CatalogRepository {
             JSONObject obj = new JSONObject(json);
             synchronized (catalog) {
                 catalog.clear();
-                for (String code : obj.keySet()) {
+                Iterator<String> keys = obj.keys();
+                while (keys.hasNext()) {
+                    String code = keys.next();
                     catalog.put(code, new FabricRecord(code, obj.optString(code, "ENGLAND FABRIC")));
                 }
             }
