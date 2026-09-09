@@ -1,6 +1,5 @@
 package com.furnituremall.englandfabriccheck;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -19,12 +18,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
 
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -32,13 +26,22 @@ public class MainActivity extends AppCompatActivity {
     private EditText input;
     private TextView status;
     private TextView detail;
+    private TextView catalogInfo;
     private Button checkButton;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private Button refreshButton;
+    private CatalogRepository catalog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        catalog = new CatalogRepository(this);
         setContentView(buildUi());
+        updateCatalogInfo();
+
+        // If there is no verified full catalog saved on this phone, get one now.
+        if (!catalog.hasUsableCatalog()) {
+            refreshCatalog(false);
+        }
     }
 
     private View buildUi() {
@@ -77,6 +80,17 @@ public class MainActivity extends AppCompatActivity {
         bp.topMargin = dp(8);
         root.addView(checkButton, bp);
 
+        refreshButton = button("REFRESH ENGLAND CATALOG", false);
+        refreshButton.setOnClickListener(v -> refreshCatalog(true));
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
+        rp.topMargin = dp(8);
+        root.addView(refreshButton, rp);
+
+        catalogInfo = text("Catalog: checking…", 12, false);
+        catalogInfo.setTextColor(Color.parseColor("#66736C"));
+        catalogInfo.setPadding(0, dp(10), 0, 0);
+        root.addView(catalogInfo);
+
         status = text("READY", 18, true);
         status.setGravity(Gravity.CENTER);
         status.setTextColor(Color.WHITE);
@@ -92,7 +106,9 @@ public class MainActivity extends AppCompatActivity {
         detail.setPadding(dp(8), dp(16), dp(8), 0);
         root.addView(detail);
 
-        TextView note = text("This app runs on your Android phone. It only uses the internet to check England Furniture's current public fabric catalog.", 13, false);
+        TextView note = text(
+                "Important: this version will not call a fabric discontinued unless a complete verified England catalog is saved on the phone. If the catalog cannot refresh safely, it shows NEEDS VERIFICATION instead.",
+                13, false);
         note.setTextColor(Color.parseColor("#66736C"));
         note.setPadding(0, dp(22), 0, 0);
         root.addView(note);
@@ -129,67 +145,71 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        checkButton.setEnabled(false);
-        show("CHECKING…", "Looking for fabric #" + code + " in England's current catalog.", "#66736C");
+        CatalogRepository.FabricRecord rec = catalog.find(code);
+        if (rec != null) {
+            show("CURRENT", rec.name + "\nFabric #" + code, "#2C6A4F");
+            return;
+        }
 
-        executor.execute(() -> {
-            try {
-                LookupResult r = lookupCurrentCatalog(code);
+        if (!catalog.hasUsableCatalog()) {
+            show(
+                    "NEEDS VERIFICATION",
+                    "Fabric #" + code + " is not in the small local data currently available. Refresh the England catalog before deciding its status.",
+                    "#8A6200"
+            );
+            return;
+        }
+
+        show(
+                "LIKELY DISCONTINUED / NOT CURRENT",
+                "Fabric #" + code + " was not found in the complete England catalog saved on this phone. Verify with England before a critical order.",
+                "#9D2A2A"
+        );
+    }
+
+    private void refreshCatalog(boolean showToast) {
+        refreshButton.setEnabled(false);
+        checkButton.setEnabled(false);
+        catalogInfo.setText("Refreshing England catalog…");
+
+        catalog.refresh(new CatalogRepository.RefreshCallback() {
+            @Override
+            public void onSuccess(int count, String source) {
                 runOnUiThread(() -> {
+                    refreshButton.setEnabled(true);
                     checkButton.setEnabled(true);
-                    if (r.found) {
-                        show("CURRENT", (r.name == null ? "England fabric" : r.name) + "\nFabric #" + code, "#2C6A4F");
-                    } else {
-                        show("LIKELY DISCONTINUED / NOT CURRENT", "Fabric #" + code + " was not found in England Furniture's current online fabric catalog.", "#9D2A2A");
+                    updateCatalogInfo();
+                    if (showToast) {
+                        Toast.makeText(MainActivity.this,
+                                "Catalog refreshed: " + count + " fabrics.", Toast.LENGTH_LONG).show();
                     }
                 });
-            } catch (Exception e) {
+            }
+
+            @Override
+            public void onFailure(String message) {
                 runOnUiThread(() -> {
+                    refreshButton.setEnabled(true);
                     checkButton.setEnabled(true);
-                    show("NEEDS VERIFICATION", "Could not reach or safely read England's catalog. Try again with internet access.", "#8A6200");
-                    Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show();
+                    updateCatalogInfo();
+                    show("NEEDS VERIFICATION",
+                            "The England catalog could not be refreshed safely. Existing saved data was kept; no fabric will be called discontinued from an incomplete refresh.",
+                            "#8A6200");
+                    if (showToast) {
+                        Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+                    }
                 });
             }
         });
     }
 
-    private LookupResult lookupCurrentCatalog(String code) throws Exception {
-        String previousSignature = "";
-        int repeated = 0;
-
-        for (int page = 1; page <= 40; page++) {
-            Document doc = Jsoup.connect("https://www.englandfurniture.com/fabric/cover-type.aspx?page=" + page)
-                    .userAgent("Mozilla/5.0 Android EnglandFabricCheck/1.0")
-                    .timeout(18000)
-                    .get();
-
-            String text = doc.body().text();
-            String signature = text.length() + ":" + text.substring(0, Math.min(120, text.length()));
-            if (signature.equals(previousSignature)) repeated++; else repeated = 0;
-            previousSignature = signature;
-
-            Pattern p = Pattern.compile("(?i)(.{0,120})\\b" + Pattern.quote(code) + "\\b(.{0,180})");
-            Matcher m = p.matcher(text);
-            if (m.find()) {
-                String around = (m.group(1) + " " + m.group(2)).replaceAll("\\s+", " ").trim();
-                String name = extractName(around, code);
-                return new LookupResult(true, name);
-            }
-
-            if (repeated >= 2) break;
+    private void updateCatalogInfo() {
+        int count = catalog.getCount();
+        if (catalog.hasUsableCatalog()) {
+            catalogInfo.setText("Catalog ready • " + count + " fabrics • " + catalog.getSource() + " • updated " + catalog.getLastSyncText());
+        } else {
+            catalogInfo.setText("No complete verified catalog saved yet • tap Refresh England Catalog");
         }
-        return new LookupResult(false, null);
-    }
-
-    private String extractName(String around, String code) {
-        String cleaned = around.replace(code, " ").replaceAll("(?i)View Item|Compare|New", " ").replaceAll("\\s+", " ").trim();
-        Matcher caps = Pattern.compile("([A-Z][A-Z0-9 '&/-]{3,50})").matcher(cleaned.toUpperCase(Locale.US));
-        String best = null;
-        while (caps.find()) {
-            String candidate = caps.group(1).trim();
-            if (!candidate.matches(".*(IMPORT|CRYPTON|DOMESTIC|REVOLUTION|FABRIC|COVER TYPE).*")) best = candidate;
-        }
-        return best;
     }
 
     private String normalize(String raw) {
@@ -234,12 +254,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        executor.shutdownNow();
-    }
-
-    private static class LookupResult {
-        final boolean found;
-        final String name;
-        LookupResult(boolean found, String name) { this.found = found; this.name = name; }
+        if (catalog != null) catalog.shutdown();
     }
 }
