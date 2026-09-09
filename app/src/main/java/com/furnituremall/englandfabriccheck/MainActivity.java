@@ -37,9 +37,6 @@ public class MainActivity extends AppCompatActivity {
         catalog = new CatalogRepository(this);
         setContentView(buildUi());
         updateCatalogInfo();
-
-        // Get the newest verified England snapshot whenever the app opens.
-        // If internet is unavailable, the bundled/last-good catalog remains usable.
         refreshCatalog(false);
     }
 
@@ -79,7 +76,7 @@ public class MainActivity extends AppCompatActivity {
         bp.topMargin = dp(8);
         root.addView(checkButton, bp);
 
-        refreshButton = button("REFRESH OFFICIAL ENGLAND CATALOG", false);
+        refreshButton = button("REFRESH OFFLINE ENGLAND CATALOG", false);
         refreshButton.setOnClickListener(v -> refreshCatalog(true));
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
         rp.topMargin = dp(8);
@@ -106,7 +103,7 @@ public class MainActivity extends AppCompatActivity {
         root.addView(detail);
 
         TextView note = text(
-                "Source: England Furniture's official in-store fabric catalog system. A verified snapshot is refreshed daily and saved on your phone. If a refresh is incomplete or unavailable, the last good catalog is kept instead of falsely marking fabrics discontinued.",
+                "The app checks its saved England catalog first. If a fabric is missing there, it checks EnglandFurniture.com live before calling it not current. If the live check cannot be completed, the result is NEEDS VERIFICATION instead of discontinued.",
                 13, false);
         note.setTextColor(Color.parseColor("#66736C"));
         note.setPadding(0, dp(22), 0, 0);
@@ -151,25 +148,47 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        if (!catalog.hasUsableCatalog()) {
-            show(
-                    "NEEDS VERIFICATION",
-                    "A complete official England catalog is not available on this phone yet. Refresh the catalog before deciding this fabric's status.",
-                    "#8A6200"
-            );
-            return;
-        }
+        checkButton.setEnabled(false);
+        show("CHECKING ENGLAND WEBSITE…", "Fabric #" + code + " was not in the offline list. Checking EnglandFurniture.com now…", "#66736C");
 
-        show(
-                "LIKELY DISCONTINUED / NOT CURRENT",
-                "Fabric #" + code + " is not listed in the current official England fabric catalog saved on this phone. Verify with England before a critical special order.",
-                "#9D2A2A"
-        );
+        catalog.lookupOfficialWebsite(code, new CatalogRepository.WebsiteLookupCallback() {
+            @Override
+            public void onCurrent(CatalogRepository.FabricRecord record) {
+                runOnUiThread(() -> {
+                    checkButton.setEnabled(true);
+                    show("CURRENT", record.name + "\nFabric #" + code + "\nVerified live on EnglandFurniture.com", "#2C6A4F");
+                });
+            }
+
+            @Override
+            public void onNotCurrent() {
+                runOnUiThread(() -> {
+                    checkButton.setEnabled(true);
+                    show(
+                            "LIKELY DISCONTINUED / NOT CURRENT",
+                            "Fabric #" + code + " was not found as an exact current fabric barcode on EnglandFurniture.com. Verify with England before a critical special order.",
+                            "#9D2A2A"
+                    );
+                });
+            }
+
+            @Override
+            public void onFailure(String message) {
+                runOnUiThread(() -> {
+                    checkButton.setEnabled(true);
+                    show(
+                            "NEEDS VERIFICATION",
+                            "Fabric #" + code + " is not in the offline list, and EnglandFurniture.com could not be checked right now. It has NOT been classified as discontinued.",
+                            "#8A6200"
+                    );
+                });
+            }
+        });
     }
 
     private void refreshCatalog(boolean showToast) {
         refreshButton.setEnabled(false);
-        catalogInfo.setText("Refreshing official England catalog…");
+        catalogInfo.setText("Refreshing offline England catalog…");
 
         catalog.refresh(new CatalogRepository.RefreshCallback() {
             @Override
@@ -179,7 +198,7 @@ public class MainActivity extends AppCompatActivity {
                     updateCatalogInfo();
                     if (showToast) {
                         Toast.makeText(MainActivity.this,
-                                "Official England catalog refreshed: " + count + " fabrics.",
+                                "Offline England catalog refreshed: " + count + " fabrics.",
                                 Toast.LENGTH_LONG).show();
                     }
                 });
@@ -190,11 +209,6 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     refreshButton.setEnabled(true);
                     updateCatalogInfo();
-                    if (!catalog.hasUsableCatalog()) {
-                        show("NEEDS VERIFICATION",
-                                "The official England catalog could not be refreshed and no verified full catalog is available yet.",
-                                "#8A6200");
-                    }
                     if (showToast) {
                         Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
                     }
@@ -206,10 +220,11 @@ public class MainActivity extends AppCompatActivity {
     private void updateCatalogInfo() {
         int count = catalog.getCount();
         if (catalog.hasUsableCatalog()) {
-            catalogInfo.setText("Official catalog ready • " + count + " fabrics • " +
-                    catalog.getSource() + " • updated " + catalog.getLastSyncText());
+            catalogInfo.setText("Offline catalog ready • " + count + " fabrics • " +
+                    catalog.getSource() + " • updated " + catalog.getLastSyncText() +
+                    " • missing codes are checked live");
         } else {
-            catalogInfo.setText("No complete official England catalog saved yet • tap Refresh");
+            catalogInfo.setText("Offline catalog unavailable • missing codes will be checked live");
         }
     }
 
