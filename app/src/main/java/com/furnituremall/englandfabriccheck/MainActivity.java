@@ -38,10 +38,9 @@ public class MainActivity extends AppCompatActivity {
         setContentView(buildUi());
         updateCatalogInfo();
 
-        // If there is no verified full catalog saved on this phone, get one now.
-        if (!catalog.hasUsableCatalog()) {
-            refreshCatalog(false);
-        }
+        // Get the newest verified England snapshot whenever the app opens.
+        // If internet is unavailable, the bundled/last-good catalog remains usable.
+        refreshCatalog(false);
     }
 
     private View buildUi() {
@@ -80,7 +79,7 @@ public class MainActivity extends AppCompatActivity {
         bp.topMargin = dp(8);
         root.addView(checkButton, bp);
 
-        refreshButton = button("REFRESH ENGLAND CATALOG", false);
+        refreshButton = button("REFRESH OFFICIAL ENGLAND CATALOG", false);
         refreshButton.setOnClickListener(v -> refreshCatalog(true));
         LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2);
         rp.topMargin = dp(8);
@@ -107,7 +106,7 @@ public class MainActivity extends AppCompatActivity {
         root.addView(detail);
 
         TextView note = text(
-                "Important: this version will not call a fabric discontinued unless a complete verified England catalog is saved on the phone. If the catalog cannot refresh safely, it shows NEEDS VERIFICATION instead.",
+                "Source: England Furniture's official in-store fabric catalog system. A verified snapshot is refreshed daily and saved on your phone. If a refresh is incomplete or unavailable, the last good catalog is kept instead of falsely marking fabrics discontinued.",
                 13, false);
         note.setTextColor(Color.parseColor("#66736C"));
         note.setPadding(0, dp(22), 0, 0);
@@ -154,7 +153,7 @@ public class MainActivity extends AppCompatActivity {
         if (!catalog.hasUsableCatalog()) {
             show(
                     "NEEDS VERIFICATION",
-                    "Fabric #" + code + " is not in the small local data currently available. Refresh the England catalog before deciding its status.",
+                    "A complete official England catalog is not available on this phone yet. Refresh the catalog before deciding this fabric's status.",
                     "#8A6200"
             );
             return;
@@ -162,26 +161,25 @@ public class MainActivity extends AppCompatActivity {
 
         show(
                 "LIKELY DISCONTINUED / NOT CURRENT",
-                "Fabric #" + code + " was not found in the complete England catalog saved on this phone. Verify with England before a critical order.",
+                "Fabric #" + code + " is not listed in the current official England fabric catalog saved on this phone. Verify with England before a critical special order.",
                 "#9D2A2A"
         );
     }
 
     private void refreshCatalog(boolean showToast) {
         refreshButton.setEnabled(false);
-        checkButton.setEnabled(false);
-        catalogInfo.setText("Refreshing England catalog…");
+        catalogInfo.setText("Refreshing official England catalog…");
 
         catalog.refresh(new CatalogRepository.RefreshCallback() {
             @Override
             public void onSuccess(int count, String source) {
                 runOnUiThread(() -> {
                     refreshButton.setEnabled(true);
-                    checkButton.setEnabled(true);
                     updateCatalogInfo();
                     if (showToast) {
                         Toast.makeText(MainActivity.this,
-                                "Catalog refreshed: " + count + " fabrics.", Toast.LENGTH_LONG).show();
+                                "Official England catalog refreshed: " + count + " fabrics.",
+                                Toast.LENGTH_LONG).show();
                     }
                 });
             }
@@ -190,11 +188,12 @@ public class MainActivity extends AppCompatActivity {
             public void onFailure(String message) {
                 runOnUiThread(() -> {
                     refreshButton.setEnabled(true);
-                    checkButton.setEnabled(true);
                     updateCatalogInfo();
-                    show("NEEDS VERIFICATION",
-                            "The England catalog could not be refreshed safely. Existing saved data was kept; no fabric will be called discontinued from an incomplete refresh.",
-                            "#8A6200");
+                    if (!catalog.hasUsableCatalog()) {
+                        show("NEEDS VERIFICATION",
+                                "The official England catalog could not be refreshed and no verified full catalog is available yet.",
+                                "#8A6200");
+                    }
                     if (showToast) {
                         Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
                     }
@@ -206,9 +205,10 @@ public class MainActivity extends AppCompatActivity {
     private void updateCatalogInfo() {
         int count = catalog.getCount();
         if (catalog.hasUsableCatalog()) {
-            catalogInfo.setText("Catalog ready • " + count + " fabrics • " + catalog.getSource() + " • updated " + catalog.getLastSyncText());
+            catalogInfo.setText("Official catalog ready • " + count + " fabrics • " +
+                    catalog.getSource() + " • updated " + catalog.getLastSyncText());
         } else {
-            catalogInfo.setText("No complete verified catalog saved yet • tap Refresh England Catalog");
+            catalogInfo.setText("No complete official England catalog saved yet • tap Refresh");
         }
     }
 
