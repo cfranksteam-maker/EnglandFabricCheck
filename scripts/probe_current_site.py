@@ -20,7 +20,6 @@ for s in scripts:
     if any(k in u.lower() for k in ['microd','config','product','fabric','cover','custom','app','main']):
         print('SCRIPT',u)
 
-# Print interesting endpoint-looking strings from HTML.
 patterns=[r'https?://[^"\'\s<>]+',r'["\']([^"\']*(?:api|graphql|fabric|cover|configurator|selectcover)[^"\']*)["\']']
 seen=set()
 for pat in patterns:
@@ -32,13 +31,12 @@ for pat in patterns:
         if any(x in v.lower() for x in ['fabric','cover','config','api','graphql','microd']):
             print('HINT',v)
 
-# Inspect same-origin JS bundles for literal endpoint hints.
 for s in scripts:
     u=urllib.parse.urljoin(final,s)
     if 'englandfurniture.com' not in urllib.parse.urlparse(u).netloc: continue
     try:
         _,js=get(u)
-    except Exception as e:
+    except Exception:
         continue
     low=js.lower()
     if any(k in low for k in ['selectcover','fabric','coveredarea','graphql','/api/']):
@@ -48,3 +46,5 @@ for s in scripts:
             if pos>=0:
                 snippet=js[max(0,pos-180):pos+400].replace('\n',' ')
                 print('SNIP',keyword,snippet[:580])
+
+print('probe-complete')
