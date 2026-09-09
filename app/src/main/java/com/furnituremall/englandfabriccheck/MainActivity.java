@@ -117,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void startScan() {
         IntentIntegrator integrator = new IntentIntegrator(this);
+        integrator.setCaptureActivity(PortraitCaptureActivity.class);
         integrator.setDesiredBarcodeFormats(IntentIntegrator.ONE_D_CODE_TYPES);
         integrator.setPrompt("Scan England fabric barcode");
         integrator.setBeepEnabled(true);
