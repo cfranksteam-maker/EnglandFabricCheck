@@ -36,15 +36,17 @@ public class CatalogRepository {
         void onFailure(String message);
     }
 
-    private static final String PREFS = "england_fabric_catalog_v3";
+    // v4 intentionally ignores catalogs saved by earlier dealer-mirror builds.
+    private static final String PREFS = "england_fabric_catalog_v4";
     private static final String KEY_JSON = "catalog_json";
     private static final String KEY_SYNC = "last_sync";
     private static final String KEY_SOURCE = "source";
+    private static final String KEY_GENERATED = "generated_at";
     private static final int MIN_VALID_RECORDS = 450;
 
-    // The phone never scrapes England/dealer websites directly. Those sites can
-    // return 403 to Android apps. The app refreshes from this small static JSON
-    // file instead, while also shipping a complete snapshot inside the APK.
+    // This JSON is regenerated every day from England Furniture's own in-store
+    // catalog system. The Android phone downloads only this static snapshot,
+    // avoiding the 403 blocks that occur when Android scrapes furniture sites.
     private static final String UPDATE_URL =
             "https://raw.githubusercontent.com/cfranksteam-maker/EnglandFabricCheck/main/catalog/catalog.json";
 
@@ -53,7 +55,8 @@ public class CatalogRepository {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Map<String, FabricRecord> catalog = new HashMap<>();
 
-    private String source = "Built-in catalog";
+    private String source = "Catalog unavailable";
+    private String generatedAt = "";
     private long lastSync = 0L;
 
     public CatalogRepository(Context context) {
@@ -78,12 +81,7 @@ public class CatalogRepository {
     }
 
     public boolean hasUsableCatalog() {
-        return getCount() >= MIN_VALID_RECORDS;
-    }
-
-    public boolean isFresh() {
-        return hasUsableCatalog() && lastSync > 0L &&
-                System.currentTimeMillis() - lastSync < 24L * 60L * 60L * 1000L;
+        return getCount() >= MIN_VALID_RECORDS && source.startsWith("England Furniture official");
     }
 
     public String getSource() {
@@ -91,9 +89,14 @@ public class CatalogRepository {
     }
 
     public String getLastSyncText() {
-        if (lastSync <= 0L) return "included with app";
-        return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                .format(new Date(lastSync));
+        if (lastSync > 0L) {
+            return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                    .format(new Date(lastSync));
+        }
+        if (generatedAt != null && !generatedAt.isEmpty()) {
+            return generatedAt.replace("T", " ").replace("Z", " UTC");
+        }
+        return "included with app";
     }
 
     public void refresh(RefreshCallback callback) {
@@ -101,20 +104,19 @@ public class CatalogRepository {
             try {
                 String json = downloadJson(UPDATE_URL);
                 ParsedCatalog parsed = parseAndValidate(json);
-                saveCatalog(json, parsed.source);
+                saveCatalog(json, parsed);
 
                 synchronized (catalog) {
                     catalog.clear();
                     catalog.putAll(parsed.records);
                 }
                 source = parsed.source;
+                generatedAt = parsed.generatedAt;
                 lastSync = System.currentTimeMillis();
                 callback.onSuccess(parsed.records.size(), parsed.source);
             } catch (Exception e) {
-                // Keep the last known-good bundled/saved catalog. A failed refresh
-                // must never turn into a false discontinued result.
                 callback.onFailure(e.getMessage() == null
-                        ? "Could not download the catalog update. The saved catalog is still available."
+                        ? "Could not download the official England catalog update. The last verified catalog was kept."
                         : e.getMessage());
             }
         });
@@ -131,6 +133,7 @@ public class CatalogRepository {
                 catalog.putAll(parsed.records);
             }
             source = prefs.getString(KEY_SOURCE, parsed.source);
+            generatedAt = prefs.getString(KEY_GENERATED, parsed.generatedAt);
             lastSync = prefs.getLong(KEY_SYNC, 0L);
             return true;
         } catch (Exception ignored) {
@@ -146,19 +149,26 @@ public class CatalogRepository {
                 catalog.clear();
                 catalog.putAll(parsed.records);
             }
-            source = "Built-in England catalog";
+            source = parsed.source;
+            generatedAt = parsed.generatedAt;
             lastSync = 0L;
         } catch (Exception ignored) {
             synchronized (catalog) {
                 catalog.clear();
             }
             source = "Catalog unavailable";
+            generatedAt = "";
             lastSync = 0L;
         }
     }
 
     private ParsedCatalog parseAndValidate(String json) throws Exception {
         JSONObject root = new JSONObject(json);
+        String parsedSource = root.optString("source", "").trim();
+        if (!parsedSource.startsWith("England Furniture official")) {
+            throw new Exception("Catalog source was not verified as England Furniture official data.");
+        }
+
         JSONObject recordsObject = root.optJSONObject("records");
         if (recordsObject == null) {
             throw new Exception("Catalog update did not contain fabric records.");
@@ -174,27 +184,26 @@ public class CatalogRepository {
             }
         }
 
+        int declaredCount = root.optInt("count", 0);
         if (records.size() < MIN_VALID_RECORDS) {
-            throw new Exception("Catalog update was incomplete (" + records.size() +
-                    " fabrics). The existing saved catalog was kept.");
+            throw new Exception("Official England catalog update was incomplete (" +
+                    records.size() + " fabrics). The existing catalog was kept.");
+        }
+        if (declaredCount > 0 && Math.abs(declaredCount - records.size()) > 5) {
+            throw new Exception("Official England catalog update failed its completeness check.");
         }
 
-        // Known-current sanity check. This catches malformed/wrong-brand feeds.
-        FabricRecord test = records.get("9528");
-        if (test == null || !test.name.toUpperCase().contains("BENNETT JUNGLE")) {
-            throw new Exception("Catalog update failed its England fabric validation check.");
-        }
-
-        String parsedSource = root.optString("source", "England catalog feed");
-        return new ParsedCatalog(records, parsedSource);
+        String parsedGeneratedAt = root.optString("generated_at", "").trim();
+        return new ParsedCatalog(records, parsedSource, parsedGeneratedAt);
     }
 
-    private void saveCatalog(String json, String parsedSource) {
+    private void saveCatalog(String json, ParsedCatalog parsed) {
         long now = System.currentTimeMillis();
         prefs.edit()
                 .putString(KEY_JSON, json)
                 .putLong(KEY_SYNC, now)
-                .putString(KEY_SOURCE, parsedSource)
+                .putString(KEY_SOURCE, parsed.source)
+                .putString(KEY_GENERATED, parsed.generatedAt)
                 .apply();
     }
 
@@ -203,14 +212,14 @@ public class CatalogRepository {
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(20000);
         conn.setInstanceFollowRedirects(true);
-        conn.setRequestProperty("User-Agent", "EnglandFabricCheck-Android/1.2");
+        conn.setRequestProperty("User-Agent", "EnglandFabricCheck-Android/1.3");
         conn.setRequestProperty("Accept", "application/json,text/plain,*/*");
 
         int status = conn.getResponseCode();
         if (status < 200 || status >= 300) {
             conn.disconnect();
-            throw new Exception("Catalog update returned HTTP " + status +
-                    ". The built-in catalog is still available.");
+            throw new Exception("Official catalog update returned HTTP " + status +
+                    ". The saved England catalog is still available.");
         }
 
         try (InputStream in = conn.getInputStream()) {
@@ -238,10 +247,12 @@ public class CatalogRepository {
     private static class ParsedCatalog {
         final Map<String, FabricRecord> records;
         final String source;
+        final String generatedAt;
 
-        ParsedCatalog(Map<String, FabricRecord> records, String source) {
+        ParsedCatalog(Map<String, FabricRecord> records, String source, String generatedAt) {
             this.records = records;
             this.source = source;
+            this.generatedAt = generatedAt;
         }
     }
 }
