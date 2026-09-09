@@ -7,6 +7,12 @@
         android:label="England Fabric Check"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".PortraitCaptureActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
