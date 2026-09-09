@@ -14,6 +14,7 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
+import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -44,25 +45,25 @@ public class CatalogRepository {
         void onFailure(String message);
     }
 
-    private static final String PREFS = "england_fabric_catalog_v4";
+    // v6 starts with a clean saved catalog so older incomplete snapshots cannot
+    // override the new EnglandFurniture.com catalog.
+    private static final String PREFS = "england_fabric_catalog_v6";
     private static final String KEY_JSON = "catalog_json";
     private static final String KEY_SYNC = "last_sync";
     private static final String KEY_SOURCE = "source";
     private static final String KEY_GENERATED = "generated_at";
     private static final int MIN_VALID_RECORDS = 450;
+    private static final int PAGE_SIZE = 100;
+    private static final int MAX_PAGES = 20;
+    private static final long ONLINE_FRESH_MS = 24L * 60L * 60L * 1000L;
 
-    // Offline snapshot. This is generated from England's own in-store catalog.
-    private static final String UPDATE_URL =
-            "https://raw.githubusercontent.com/cfranksteam-maker/EnglandFabricCheck/main/catalog/catalog.json";
+    private static final String LIVE_SOURCE = "EnglandFurniture.com live catalog";
 
-    // England's current public website API. The current England website itself
-    // uses this Matrix API for its fabric/product search. We use it only when a
-    // barcode is missing from the offline snapshot, so new fabrics are not
-    // incorrectly called discontinued.
+    // These are the current public Matrix endpoints used by EnglandFurniture.com.
+    private static final String ENGLAND_PRODUCTS_API =
+            "https://www.englandfurniture.com/api/matrix/v2/england/products/";
     private static final String ENGLAND_SEARCH_API =
             "https://www.englandfurniture.com/api/matrix/v2/england/search/?q=";
-    private static final String ENGLAND_PRODUCT_API =
-            "https://www.englandfurniture.com/api/matrix/v2/england/products/?sku=";
 
     private final Context context;
     private final SharedPreferences prefs;
@@ -78,6 +79,8 @@ public class CatalogRepository {
         this.prefs = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
 
         if (!loadSavedCatalog()) {
+            // The bundled catalog is only a backup until the phone completes its
+            // first refresh from EnglandFurniture.com.
             loadBundledCatalog();
         }
     }
@@ -88,6 +91,13 @@ public class CatalogRepository {
         }
     }
 
+    public void rememberCurrent(FabricRecord record) {
+        if (record == null) return;
+        synchronized (catalog) {
+            catalog.put(record.code, record);
+        }
+    }
+
     public int getCount() {
         synchronized (catalog) {
             return catalog.size();
@@ -95,7 +105,16 @@ public class CatalogRepository {
     }
 
     public boolean hasUsableCatalog() {
-        return getCount() >= MIN_VALID_RECORDS && source.startsWith("England Furniture official");
+        return getCount() >= MIN_VALID_RECORDS;
+    }
+
+    public boolean isLiveCatalog() {
+        return LIVE_SOURCE.equals(source);
+    }
+
+    public boolean isLiveCatalogFresh() {
+        return isLiveCatalog() && lastSync > 0L &&
+                System.currentTimeMillis() - lastSync < ONLINE_FRESH_MS;
     }
 
     public String getSource() {
@@ -113,34 +132,93 @@ public class CatalogRepository {
         return "included with app";
     }
 
+    /**
+     * Refreshes the phone's saved catalog directly from the current
+     * EnglandFurniture.com Matrix product API. The API contains furniture and
+     * fabrics together, so we page through every product and keep only records
+     * whose feature set is fabric and whose exact barcode is present.
+     */
     public void refresh(RefreshCallback callback) {
         executor.execute(() -> {
             try {
-                String json = downloadJson(UPDATE_URL, "EnglandFabricCheck-Android/1.5", false);
-                ParsedCatalog parsed = parseAndValidate(json);
-                saveCatalog(json, parsed);
+                Map<String, FabricRecord> records = downloadCurrentOnlineCatalog();
+                if (records.size() < MIN_VALID_RECORDS) {
+                    throw new Exception("England's online catalog returned only " +
+                            records.size() + " fabrics. The existing saved catalog was kept.");
+                }
+
+                String generated = Instant.now().toString();
+                String json = buildCatalogJson(records, LIVE_SOURCE, generated);
+                saveCatalog(json, LIVE_SOURCE, generated);
 
                 synchronized (catalog) {
                     catalog.clear();
-                    catalog.putAll(parsed.records);
+                    catalog.putAll(records);
                 }
-                source = parsed.source;
-                generatedAt = parsed.generatedAt;
+                source = LIVE_SOURCE;
+                generatedAt = generated;
                 lastSync = System.currentTimeMillis();
-                callback.onSuccess(parsed.records.size(), parsed.source);
+                callback.onSuccess(records.size(), LIVE_SOURCE);
             } catch (Exception e) {
                 callback.onFailure(e.getMessage() == null
-                        ? "Could not download the official England catalog update. The last verified catalog was kept."
+                        ? "Could not refresh EnglandFurniture.com's online fabric catalog. The last saved catalog was kept."
                         : e.getMessage());
             }
         });
     }
 
+    private Map<String, FabricRecord> downloadCurrentOnlineCatalog() throws Exception {
+        Map<String, FabricRecord> records = new HashMap<>();
+        boolean reachedEnd = false;
+
+        for (int page = 1; page <= MAX_PAGES; page++) {
+            String url = ENGLAND_PRODUCTS_API +
+                    "?include=full&page_size=" + PAGE_SIZE + "&page=" + page;
+            String json = downloadJson(url, "EnglandFabricCheck-Android/1.6", true);
+            JSONObject root = new JSONObject(json);
+            JSONArray results = root.optJSONArray("results");
+            if (results == null) {
+                throw new Exception("England's online catalog response was missing product records.");
+            }
+
+            if (results.length() == 0) {
+                reachedEnd = true;
+                break;
+            }
+
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject product = results.optJSONObject(i);
+                if (product == null || !isFabricResult(product)) continue;
+
+                String barcode = extractBarcode(product).trim();
+                if (!barcode.matches("\\d{4,6}")) continue;
+
+                String name = product.optString("name", "").trim();
+                if (name.isEmpty()) name = product.optString("sku", "").trim();
+                if (name.isEmpty()) name = "England Fabric " + barcode;
+
+                records.put(barcode, new FabricRecord(barcode, name.toUpperCase()));
+            }
+
+            // England's API currently reports has_next_page=false even while
+            // later numbered pages exist, so the actual page length is used to
+            // detect the end instead.
+            if (results.length() < PAGE_SIZE) {
+                reachedEnd = true;
+                break;
+            }
+        }
+
+        if (!reachedEnd) {
+            throw new Exception("England's online catalog exceeded the expected page limit; refusing an incomplete refresh.");
+        }
+        return records;
+    }
+
     /**
-     * Checks EnglandFurniture.com itself for a barcode that is absent from the
-     * offline snapshot. The website's search can return a fabric by its barcode,
-     * but the barcode is stored in the full product data, so we verify the exact
-     * barcode before calling it current.
+     * Performs an exact live lookup against EnglandFurniture.com for one fabric
+     * barcode. This is used for scans so a stale local cache cannot be the sole
+     * reason a fabric is called current or not current.
      */
     public void lookupOfficialWebsite(String code, WebsiteLookupCallback callback) {
         executor.execute(() -> {
@@ -148,7 +226,7 @@ public class CatalogRepository {
                 String encodedCode = URLEncoder.encode(code, StandardCharsets.UTF_8.toString());
                 String searchJson = downloadJson(
                         ENGLAND_SEARCH_API + encodedCode,
-                        "EnglandFabricCheck-Android/1.5",
+                        "EnglandFabricCheck-Android/1.6",
                         true
                 );
 
@@ -171,8 +249,8 @@ public class CatalogRepository {
 
                     String encodedSku = URLEncoder.encode(sku, StandardCharsets.UTF_8.toString());
                     String fullJson = downloadJson(
-                            ENGLAND_PRODUCT_API + encodedSku + "&include=full",
-                            "EnglandFabricCheck-Android/1.5",
+                            ENGLAND_PRODUCTS_API + "?sku=" + encodedSku + "&include=full",
+                            "EnglandFabricCheck-Android/1.6",
                             true
                     );
 
@@ -189,14 +267,14 @@ public class CatalogRepository {
                             String name = full.optString("name", searchName).trim();
                             if (name.isEmpty()) name = searchName;
                             if (name.isEmpty()) name = "England Fabric " + code;
-                            callback.onCurrent(new FabricRecord(code, name.toUpperCase()));
+                            FabricRecord record = new FabricRecord(code, name.toUpperCase());
+                            rememberCurrent(record);
+                            callback.onCurrent(record);
                             return;
                         }
                     }
                 }
 
-                // The official search completed normally but did not return a
-                // fabric whose actual barcode exactly matches this code.
                 callback.onNotCurrent();
             } catch (Exception e) {
                 callback.onFailure(e.getMessage() == null
@@ -217,8 +295,8 @@ public class CatalogRepository {
                 JSONObject obj = new JSONObject(text);
                 return "fabric".equalsIgnoreCase(obj.optString("idx", ""));
             } catch (Exception ignored) {
-                return text.toLowerCase().contains("\"idx\"") &&
-                        text.toLowerCase().contains("fabric");
+                String lower = text.toLowerCase();
+                return lower.contains("\"idx\"") && lower.contains("fabric");
             }
         }
         return false;
@@ -244,7 +322,6 @@ public class CatalogRepository {
         }
 
         if (array == null) return "";
-
         for (int i = 0; i < array.length(); i++) {
             JSONObject item = array.optJSONObject(i);
             if (item == null) continue;
@@ -261,7 +338,6 @@ public class CatalogRepository {
     private boolean loadSavedCatalog() {
         String json = prefs.getString(KEY_JSON, "");
         if (json == null || json.isEmpty()) return false;
-
         try {
             ParsedCatalog parsed = parseAndValidate(json);
             synchronized (catalog) {
@@ -301,13 +377,15 @@ public class CatalogRepository {
     private ParsedCatalog parseAndValidate(String json) throws Exception {
         JSONObject root = new JSONObject(json);
         String parsedSource = root.optString("source", "").trim();
-        if (!parsedSource.startsWith("England Furniture official")) {
-            throw new Exception("Catalog source was not verified as England Furniture official data.");
+        boolean acceptedSource = LIVE_SOURCE.equals(parsedSource) ||
+                parsedSource.startsWith("England Furniture official");
+        if (!acceptedSource) {
+            throw new Exception("Catalog source was not recognized as England Furniture data.");
         }
 
         JSONObject recordsObject = root.optJSONObject("records");
         if (recordsObject == null) {
-            throw new Exception("Catalog update did not contain fabric records.");
+            throw new Exception("Catalog did not contain fabric records.");
         }
 
         Map<String, FabricRecord> records = new HashMap<>();
@@ -320,33 +398,49 @@ public class CatalogRepository {
             }
         }
 
-        int declaredCount = root.optInt("count", 0);
         if (records.size() < MIN_VALID_RECORDS) {
-            throw new Exception("Official England catalog update was incomplete (" +
-                    records.size() + " fabrics). The existing catalog was kept.");
+            throw new Exception("Catalog was incomplete (" + records.size() + " fabrics).");
         }
+        int declaredCount = root.optInt("count", 0);
         if (declaredCount > 0 && Math.abs(declaredCount - records.size()) > 5) {
-            throw new Exception("Official England catalog update failed its completeness check.");
+            throw new Exception("Catalog failed its completeness check.");
         }
 
-        String parsedGeneratedAt = root.optString("generated_at", "").trim();
-        return new ParsedCatalog(records, parsedSource, parsedGeneratedAt);
+        return new ParsedCatalog(
+                records,
+                parsedSource,
+                root.optString("generated_at", "").trim()
+        );
     }
 
-    private void saveCatalog(String json, ParsedCatalog parsed) {
+    private String buildCatalogJson(Map<String, FabricRecord> records, String sourceName, String generated) throws Exception {
+        JSONObject recordObject = new JSONObject();
+        for (Map.Entry<String, FabricRecord> entry : records.entrySet()) {
+            recordObject.put(entry.getKey(), entry.getValue().name);
+        }
+        JSONObject root = new JSONObject();
+        root.put("source", sourceName);
+        root.put("source_url", "https://www.englandfurniture.com/api/matrix/v2/england/products/");
+        root.put("generated_at", generated);
+        root.put("count", records.size());
+        root.put("records", recordObject);
+        return root.toString();
+    }
+
+    private void saveCatalog(String json, String sourceName, String generated) {
         long now = System.currentTimeMillis();
         prefs.edit()
                 .putString(KEY_JSON, json)
                 .putLong(KEY_SYNC, now)
-                .putString(KEY_SOURCE, parsed.source)
-                .putString(KEY_GENERATED, parsed.generatedAt)
+                .putString(KEY_SOURCE, sourceName)
+                .putString(KEY_GENERATED, generated)
                 .apply();
     }
 
     private String downloadJson(String urlText, String userAgent, boolean englandWebsite) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(urlText).openConnection();
         conn.setConnectTimeout(15000);
-        conn.setReadTimeout(20000);
+        conn.setReadTimeout(30000);
         conn.setInstanceFollowRedirects(true);
         conn.setRequestProperty("User-Agent", userAgent);
         conn.setRequestProperty("Accept", "application/json,text/plain,*/*");
@@ -357,7 +451,7 @@ public class CatalogRepository {
         int status = conn.getResponseCode();
         if (status < 200 || status >= 300) {
             conn.disconnect();
-            throw new Exception("England website returned HTTP " + status + ".");
+            throw new Exception("EnglandFurniture.com returned HTTP " + status + ".");
         }
 
         try (InputStream in = conn.getInputStream()) {
