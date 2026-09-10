@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -30,11 +31,15 @@ public class MainActivity extends AppCompatActivity {
     private Button checkButton;
     private Button refreshButton;
     private CatalogRepository catalog;
+    private FabricCompositionLookup compositionLookup;
+    private String compositionCode = "";
+    private String compositionText = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         catalog = new CatalogRepository(this);
+        compositionLookup = new FabricCompositionLookup(this);
         setContentView(buildUi());
         updateCatalogInfo();
 
@@ -63,7 +68,7 @@ public class MainActivity extends AppCompatActivity {
         title.setPadding(0, dp(4), 0, dp(18));
         root.addView(title);
 
-        Button scan = button("SCAN FABRIC BARCODE", true);
+        Button scan = button("SCAN FABRIC BARCODE (OR PRESS VOLUME DOWN)", true);
         scan.setOnClickListener(v -> startScan());
         root.addView(scan);
 
@@ -101,14 +106,14 @@ public class MainActivity extends AppCompatActivity {
         sp.topMargin = dp(22);
         root.addView(status, sp);
 
-        detail = text("Scan or enter an England fabric barcode.", 16, false);
+        detail = text("Press Volume Down, tap Scan, or enter an England fabric barcode.", 16, false);
         detail.setTextColor(Color.parseColor("#4F5E56"));
         detail.setGravity(Gravity.CENTER);
         detail.setPadding(dp(8), dp(16), dp(8), 0);
         root.addView(detail);
 
         TextView note = text(
-                "Scans are checked against EnglandFurniture.com live first. The Refresh button downloads the full current online fabric catalog to your phone for fast backup/offline use. If the live website cannot be checked and a fabric is missing from the saved catalog, the app shows NEEDS VERIFICATION instead of assuming it is discontinued.",
+                "Scans are checked against EnglandFurniture.com live first. Fabric composition is pulled from England's product data and saved on the phone after it is found. The Refresh button downloads the full current online fabric catalog to your phone for fast backup/offline use. If the live website cannot be checked and a fabric is missing from the saved catalog, the app shows NEEDS VERIFICATION instead of assuming it is discontinued.",
                 13, false);
         note.setTextColor(Color.parseColor("#66736C"));
         note.setPadding(0, dp(22), 0, 0);
@@ -128,6 +133,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN && event.getRepeatCount() == 0) {
+            startScan();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         IntentResult result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
         if (result != null) {
@@ -143,14 +157,17 @@ public class MainActivity extends AppCompatActivity {
     private void checkFabric(String raw) {
         String code = normalize(raw);
         if (!code.matches("\\d{4,6}")) {
+            compositionCode = "";
+            compositionText = "";
             show("UNRECOGNIZED BARCODE", "Could not find an England fabric number in: " + raw, "#8A6200");
             return;
         }
 
+        beginCompositionLookup(code);
         CatalogRepository.FabricRecord saved = catalog.find(code);
         checkButton.setEnabled(false);
         show("CHECKING ENGLAND WEBSITE…",
-                "Checking fabric #" + code + " against EnglandFurniture.com…",
+                withComposition("Checking fabric #" + code + " against EnglandFurniture.com…"),
                 "#66736C");
 
         catalog.lookupOfficialWebsite(code, new CatalogRepository.WebsiteLookupCallback() {
@@ -159,7 +176,7 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     checkButton.setEnabled(true);
                     show("CURRENT",
-                            record.name + "\nFabric #" + code + "\nVerified live on EnglandFurniture.com",
+                            withComposition(record.name + "\nFabric #" + code + "\nVerified live on EnglandFurniture.com"),
                             "#2C6A4F");
                 });
             }
@@ -175,21 +192,21 @@ public class MainActivity extends AppCompatActivity {
                     CatalogRepository.FabricRecord currentSaved = catalog.find(code);
                     if (currentSaved != null && catalog.isLiveCatalogFresh()) {
                         show("CURRENT",
-                                currentSaved.name + "\nFabric #" + code +
-                                        "\nListed in the current England online catalog",
+                                withComposition(currentSaved.name + "\nFabric #" + code +
+                                        "\nListed in the current England online catalog"),
                                 "#2C6A4F");
                         return;
                     }
 
                     if (catalog.isLiveCatalogFresh()) {
                         show("LIKELY DISCONTINUED / NOT CURRENT",
-                                "Fabric #" + code +
-                                        " was not found by England's live barcode search or in the freshly downloaded online catalog. Verify with England before a critical special order.",
+                                withComposition("Fabric #" + code +
+                                        " was not found by England's live barcode search or in the freshly downloaded online catalog. Verify with England before a critical special order."),
                                 "#9D2A2A");
                     } else {
                         show("NEEDS VERIFICATION",
-                                "Fabric #" + code +
-                                        " was not confirmed by the live search, but the full online catalog on this phone is not fresh enough to classify it as discontinued. Tap Refresh Online England Catalog.",
+                                withComposition("Fabric #" + code +
+                                        " was not confirmed by the live search, but the full online catalog on this phone is not fresh enough to classify it as discontinued. Tap Refresh Online England Catalog."),
                                 "#8A6200");
                     }
                 });
@@ -205,17 +222,75 @@ public class MainActivity extends AppCompatActivity {
                                 ? "Found in the saved England online catalog; live verification is unavailable right now."
                                 : "Found in the backup England catalog; live verification is unavailable right now.";
                         show("CURRENT IN SAVED CATALOG",
-                                currentSaved.name + "\nFabric #" + code + "\n" + sourceText,
+                                withComposition(currentSaved.name + "\nFabric #" + code + "\n" + sourceText),
                                 "#8A6200");
                     } else {
                         show("NEEDS VERIFICATION",
-                                "Fabric #" + code +
-                                        " could not be checked on EnglandFurniture.com and is not in the saved catalog. It has NOT been classified as discontinued.",
+                                withComposition("Fabric #" + code +
+                                        " could not be checked on EnglandFurniture.com and is not in the saved catalog. It has NOT been classified as discontinued."),
                                 "#8A6200");
                     }
                 });
             }
         });
+    }
+
+    private void beginCompositionLookup(String code) {
+        compositionCode = code;
+        String cached = compositionLookup.getCached(code);
+        compositionText = cached == null || cached.trim().isEmpty()
+                ? "Checking England data…"
+                : cached.trim();
+
+        compositionLookup.lookup(code, new FabricCompositionLookup.Callback() {
+            @Override
+            public void onSuccess(String composition) {
+                runOnUiThread(() -> updateCompositionLine(code, composition));
+            }
+
+            @Override
+            public void onNotListed() {
+                runOnUiThread(() -> {
+                    String existing = compositionLookup.getCached(code);
+                    if (existing != null && !existing.trim().isEmpty()) {
+                        updateCompositionLine(code, existing.trim());
+                    } else {
+                        updateCompositionLine(code, "Not listed in England's product data");
+                    }
+                });
+            }
+
+            @Override
+            public void onFailure() {
+                runOnUiThread(() -> {
+                    String existing = compositionLookup.getCached(code);
+                    if (existing != null && !existing.trim().isEmpty()) {
+                        updateCompositionLine(code, existing.trim());
+                    } else {
+                        updateCompositionLine(code, "Unavailable right now");
+                    }
+                });
+            }
+        });
+    }
+
+    private String withComposition(String message) {
+        if (compositionCode.isEmpty()) return message;
+        String madeOf = compositionText == null || compositionText.trim().isEmpty()
+                ? "Checking England data…"
+                : compositionText.trim();
+        return message + "\nMade of: " + madeOf;
+    }
+
+    private void updateCompositionLine(String code, String composition) {
+        if (!code.equals(compositionCode)) return;
+        compositionText = composition == null || composition.trim().isEmpty()
+                ? "Not listed in England's product data"
+                : composition.trim();
+
+        String current = detail.getText().toString();
+        current = current.replaceFirst("(?s)\\nMade of:.*$", "");
+        detail.setText(current + "\nMade of: " + compositionText);
     }
 
     private void refreshCatalog(boolean showToast) {
@@ -305,5 +380,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (catalog != null) catalog.shutdown();
+        if (compositionLookup != null) compositionLookup.shutdown();
     }
 }
