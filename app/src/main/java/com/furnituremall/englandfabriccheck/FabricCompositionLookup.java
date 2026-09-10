@@ -145,27 +145,29 @@ public class FabricCompositionLookup {
         JSONArray array = asArray(raw);
         if (array == null) return "";
 
+        String[] descriptorKeys = {
+                "feature_idx", "code", "idx", "feature", "label", "title", "name"
+        };
+
         for (int i = 0; i < array.length(); i++) {
             JSONObject item = array.optJSONObject(i);
             if (item == null) continue;
 
-            String descriptor = firstNonEmpty(
-                    item.optString("feature_idx", ""),
-                    item.optString("code", ""),
-                    item.optString("idx", ""),
-                    item.optString("feature", ""),
-                    item.optString("label", ""),
-                    item.optString("title", ""),
-                    item.optString("name", "")
-            );
-
-            if (!isCompositionKey(descriptor)) continue;
+            boolean compositionFeature = false;
+            for (String descriptorKey : descriptorKeys) {
+                if (isCompositionKey(item.optString(descriptorKey, ""))) {
+                    compositionFeature = true;
+                    break;
+                }
+            }
+            if (!compositionFeature) continue;
 
             String value = firstNonEmpty(
                     valueToText(item.opt("value")),
                     valueToText(item.opt("attribute_value")),
                     valueToText(item.opt("display_value")),
-                    valueToText(item.opt("feature_value"))
+                    valueToText(item.opt("feature_value")),
+                    valueToText(item.opt("text"))
             );
             value = cleanComposition(value);
             if (looksLikeComposition(value)) return value;
@@ -249,13 +251,10 @@ public class FabricCompositionLookup {
     private boolean isCompositionKey(String raw) {
         if (raw == null) return false;
         String key = raw.toLowerCase(Locale.US).replaceAll("[^a-z]", "");
-        return key.equals("fibercontent") ||
-                key.equals("fibrecontent") ||
-                key.equals("fabriccontent") ||
-                key.equals("fibercomposition") ||
-                key.equals("fibrecomposition") ||
-                key.equals("fabriccomposition") ||
-                key.equals("content");
+        if (key.equals("content")) return true;
+        boolean content = key.contains("content") || key.contains("composition");
+        boolean fiber = key.contains("fiber") || key.contains("fibre") || key.contains("fabric");
+        return content && fiber;
     }
 
     private boolean looksLikeComposition(String value) {
@@ -296,6 +295,11 @@ public class FabricCompositionLookup {
             JSONObject object = (JSONObject) value;
             String text = firstNonEmpty(
                     object.optString("value", ""),
+                    object.optString("attribute_value", ""),
+                    object.optString("display_value", ""),
+                    object.optString("feature_value", ""),
+                    object.optString("text", ""),
+                    object.optString("description", ""),
                     object.optString("name", ""),
                     object.optString("label", ""),
                     object.optString("title", "")
