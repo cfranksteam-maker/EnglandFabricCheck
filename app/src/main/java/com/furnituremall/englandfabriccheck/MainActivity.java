@@ -1,13 +1,15 @@
 package com.furnituremall.paymentscanner;
 
+import android.Manifest;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
-import android.content.pm.PackageManager;\nimport android.provider.MediaStore;
+import android.content.pm.PackageManager;
+import android.provider.MediaStore;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -19,8 +21,11 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
@@ -39,7 +44,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
-    private static final int CAMERA_REQUEST = 501;\n    private static final int CAMERA_PERMISSION_REQUEST = 502;
+    private static final int CAMERA_REQUEST = 501;
+    private static final int CAMERA_PERMISSION_REQUEST = 502;
     private static final double PROTECTION_RATE = 0.15;
     private static final double STANDARD_DELIVERY = 199.99;
     private static final double PROTECTION_DELIVERY = 99.99;
