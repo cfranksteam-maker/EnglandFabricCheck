@@ -1,12 +1,11 @@
-name: Build Android APK
+name: Build Payment Scanner APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ payment-scanner-v1 ]
     paths:
       - 'app/**'
-      - 'catalog/catalog.json'
       - 'build.gradle'
       - 'settings.gradle'
       - 'gradle.properties'
@@ -23,11 +22,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Bundle latest official England catalog
-        run: |
-          mkdir -p app/src/main/assets
-          cp catalog/catalog.json app/src/main/assets/catalog.json
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -39,5 +33,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: EnglandFabricCheck-apk
+          name: FurniturePaymentScanner-v0.1
           path: app/build/outputs/apk/debug/app-debug.apk
