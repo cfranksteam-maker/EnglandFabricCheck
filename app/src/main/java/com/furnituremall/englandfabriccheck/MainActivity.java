@@ -120,7 +120,7 @@ public class MainActivity extends AppCompatActivity {
         taxRateInput.setTextSize(18);
         root.addView(taxRateInput);
 
-        TextView rule = text("24/36/48/72 months require Protection OR 15% down. Minimum purchase is checked against merchandise price.", 14, true);
+        TextView rule = text("24/36/48/72 months require Protection OR 15% down. Minimum purchase is checked against the pre-tax purchase amount: merchandise + protection + delivery.", 14, true);
         rule.setPadding(0, dp(16), 0, dp(12));
         root.addView(rule);
 
@@ -245,6 +245,7 @@ public class MainActivity extends AppCompatActivity {
         double taxableSubtotal = merchandise + protectionCost;
         double tax = round(taxableSubtotal * taxRate);
         double deliveryCost = delivery ? (protection ? PROTECTION_DELIVERY : STANDARD_DELIVERY) : 0.0;
+        double qualifyingPreTax = round(merchandise + protectionCost + deliveryCost);
         double total = round(taxableSubtotal + tax + deliveryCost);
 
         StringBuilder summary = new StringBuilder();
@@ -252,6 +253,7 @@ public class MainActivity extends AppCompatActivity {
         summary.append("Protection: ").append(protection ? money.format(protectionCost) : "Not selected").append("\n");
         summary.append("Tax: ").append(money.format(tax)).append("\n");
         summary.append(delivery ? "Delivery: " : "Pickup: ").append(money.format(deliveryCost)).append("\n");
+        summary.append("Qualifying pre-tax purchase: ").append(money.format(qualifyingPreTax)).append("\n");
         summary.append("TOTAL: ").append(money.format(total));
         summaryView.setText(summary.toString());
 
@@ -263,10 +265,10 @@ public class MainActivity extends AppCompatActivity {
         StringBuilder terms = new StringBuilder();
         appendSimpleTerm(terms, 6, total);
         appendSimpleTerm(terms, 12, total);
-        appendLongTerm(terms, 24, 2000, merchandise, total, protection);
-        appendLongTerm(terms, 36, 3000, merchandise, total, protection);
-        appendLongTerm(terms, 48, 4000, merchandise, total, protection);
-        appendLongTerm(terms, 72, 5000, merchandise, total, protection);
+        appendLongTerm(terms, 24, 2000, qualifyingPreTax, merchandise, total, protection);
+        appendLongTerm(terms, 36, 3000, qualifyingPreTax, merchandise, total, protection);
+        appendLongTerm(terms, 48, 4000, qualifyingPreTax, merchandise, total, protection);
+        appendLongTerm(terms, 72, 5000, qualifyingPreTax, merchandise, total, protection);
         termsView.setText(terms.toString().trim());
     }
 
@@ -276,10 +278,11 @@ public class MainActivity extends AppCompatActivity {
                 .append("\nNo minimum • No required down/protection\n\n");
     }
 
-    private void appendLongTerm(StringBuilder b, int months, double minimum, double merchandise, double total, boolean protection) {
+    private void appendLongTerm(StringBuilder b, int months, double minimum, double qualifyingPreTax, double merchandise, double total, boolean protection) {
         b.append(months).append(" MONTHS  •  ");
-        if (merchandise < minimum) {
-            b.append("NOT AVAILABLE\nMinimum merchandise purchase: ").append(money.format(minimum)).append("\n\n");
+        if (qualifyingPreTax < minimum) {
+            b.append("NOT AVAILABLE\nMinimum pre-tax purchase: ").append(money.format(minimum)).append("\n")
+                    .append("Current qualifying amount: ").append(money.format(qualifyingPreTax)).append("\n\n");
             return;
         }
 
