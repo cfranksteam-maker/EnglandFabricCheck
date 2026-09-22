@@ -1,12 +1,9 @@
 package com.furnituremall.paymentscanner;
 
 import android.Manifest;
-import android.app.AlertDialog;
 import android.content.Intent;
-import android.graphics.Bitmap;
-import android.os.Bundle;
 import android.content.pm.PackageManager;
-import android.provider.MediaStore;
+import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
@@ -27,24 +24,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.text.Text;
-import com.google.mlkit.vision.text.TextRecognition;
-import com.google.mlkit.vision.text.TextRecognizer;
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
-
 import java.text.NumberFormat;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Locale;
-import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
-    private static final int CAMERA_REQUEST = 501;
+    private static final int SCANNER_REQUEST = 501;
     private static final int CAMERA_PERMISSION_REQUEST = 502;
     private static final double PROTECTION_RATE = 0.15;
     private static final double STANDARD_DELIVERY = 199.99;
@@ -89,7 +73,7 @@ public class MainActivity extends AppCompatActivity {
         scanButton.setOnClickListener(v -> beginScan());
         root.addView(scanButton);
 
-        scanStatus = text("Scanner ready • Volume Down also starts scan", 13, false);
+        scanStatus = text("Live scanner ready • Volume Down also opens scanner", 13, false);
         scanStatus.setPadding(0, dp(6), 0, dp(14));
         root.addView(scanStatus);
 
@@ -169,23 +153,9 @@ public class MainActivity extends AppCompatActivity {
         setContentView(scroll);
     }
 
-    private TextView label(String value) {
-        TextView v = text(value, 14, true);
-        v.setPadding(0, dp(12), 0, dp(3));
-        return v;
-    }
-
-    private TextView text(String value, int sp, boolean bold) {
-        TextView v = new TextView(this);
-        v.setText(value);
-        v.setTextSize(sp);
-        if (bold) v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD);
-        return v;
-    }
-
     private void beginScan() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            openCamera();
+            launchScanner();
         } else {
             ActivityCompat.requestPermissions(
                     this,
@@ -195,26 +165,14 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void openCamera() {
+    private void launchScanner() {
         try {
-            Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-            if (intent.resolveActivity(getPackageManager()) == null) {
-                scanStatus.setText("No camera app is available.");
-                Toast.makeText(this, "No camera app is available.", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            scanStatus.setText("Take a clear photo of the price tag.");
-            startActivityForResult(intent, CAMERA_REQUEST);
-        } catch (SecurityException e) {
-            scanStatus.setText("Camera permission is required to scan prices.");
-            ActivityCompat.requestPermissions(
-                    this,
-                    new String[]{Manifest.permission.CAMERA},
-                    CAMERA_PERMISSION_REQUEST
-            );
+            scanStatus.setText("Opening live price scanner...");
+            Intent intent = new Intent(this, ScannerActivity.class);
+            startActivityForResult(intent, SCANNER_REQUEST);
         } catch (Exception e) {
-            scanStatus.setText("Could not open camera. You can still enter the price manually.");
-            Toast.makeText(this, "Could not open camera", Toast.LENGTH_SHORT).show();
+            scanStatus.setText("Could not open scanner. You can still enter the price manually.");
+            Toast.makeText(this, "Could not open scanner", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -227,10 +185,10 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == CAMERA_PERMISSION_REQUEST) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                openCamera();
+                launchScanner();
             } else {
-                scanStatus.setText("Camera permission was not granted. Enter a price manually or enable Camera permission in Settings.");
-                Toast.makeText(this, "Camera permission is needed for scanning.", Toast.LENGTH_LONG).show();
+                scanStatus.setText("Camera permission is needed for scanning.");
+                Toast.makeText(this, "Enable Camera permission to scan prices.", Toast.LENGTH_LONG).show();
             }
         }
     }
@@ -247,68 +205,32 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == CAMERA_REQUEST && resultCode == RESULT_OK && data != null && data.getExtras() != null) {
-            Object extra = data.getExtras().get("data");
-            if (extra instanceof Bitmap) {
-                scanStatus.setText("Reading price...");
-                recognizePrice((Bitmap) extra);
+        if (requestCode == SCANNER_REQUEST && resultCode == RESULT_OK && data != null) {
+            double price = data.getDoubleExtra(ScannerActivity.EXTRA_PRICE, -1);
+            if (price > 0) {
+                setPrice(price);
             }
         }
     }
 
-    private void recognizePrice(Bitmap bitmap) {
-        InputImage image = InputImage.fromBitmap(bitmap, 0);
-        TextRecognizer recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-        recognizer.process(image)
-                .addOnSuccessListener(this::handleRecognizedText)
-                .addOnFailureListener(e -> {
-                    scanStatus.setText("Could not read the tag. Try again or enter the price manually.");
-                    Toast.makeText(this, "Price scan failed", Toast.LENGTH_SHORT).show();
-                });
+    private TextView label(String value) {
+        TextView v = text(value, 14, true);
+        v.setPadding(0, dp(12), 0, dp(3));
+        return v;
     }
 
-    private void handleRecognizedText(Text result) {
-        List<Double> prices = extractPrices(result.getText());
-        if (prices.isEmpty()) {
-            scanStatus.setText("No price found. Try a closer photo or enter it manually.");
-            return;
-        }
-
-        scanStatus.setText("Found " + prices.size() + " possible price" + (prices.size() == 1 ? "" : "s") + ".");
-        if (prices.size() == 1) {
-            setPrice(prices.get(0));
-            return;
-        }
-
-        String[] choices = new String[prices.size()];
-        for (int i = 0; i < prices.size(); i++) choices[i] = money.format(prices.get(i));
-
-        new AlertDialog.Builder(this)
-                .setTitle("Choose the merchandise price")
-                .setItems(choices, (dialog, which) -> setPrice(prices.get(which)))
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private List<Double> extractPrices(String raw) {
-        Pattern p = Pattern.compile("\\$?\\s*((?:\\d{1,3}(?:,\\d{3})+)|\\d+)(?:\\.\\d{2})");
-        Matcher m = p.matcher(raw == null ? "" : raw);
-        Set<Double> unique = new LinkedHashSet<>();
-        while (m.find()) {
-            try {
-                double value = Double.parseDouble(m.group(1).replace(",", ""));
-                if (value >= 1 && value <= 100000) unique.add(value);
-            } catch (Exception ignored) {}
-        }
-        List<Double> out = new ArrayList<>(unique);
-        Collections.sort(out, Collections.reverseOrder());
-        return out;
+    private TextView text(String value, int sp, boolean bold) {
+        TextView v = new TextView(this);
+        v.setText(value);
+        v.setTextSize(sp);
+        if (bold) v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD);
+        return v;
     }
 
     private void setPrice(double value) {
         priceInput.setText(String.format(Locale.US, "%.2f", value));
         priceInput.setSelection(priceInput.getText().length());
-        scanStatus.setText("Selected " + money.format(value));
+        scanStatus.setText("Scanned " + money.format(value));
     }
 
     private void recalculate() {
@@ -363,7 +285,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (protection) {
             b.append(money.format(round(total / months))).append("/mo\n")
-                    .append("Protection satisfies financing requirement").append("\n\n");
+                    .append("Protection satisfies financing requirement\n\n");
         } else {
             double down = round(merchandise * 0.15);
             double financed = Math.max(0, round(total - down));
