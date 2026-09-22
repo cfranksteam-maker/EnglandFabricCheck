@@ -4,7 +4,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
-import android.provider.MediaStore;
+import android.content.pm.PackageManager;\nimport android.provider.MediaStore;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
@@ -39,7 +39,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class MainActivity extends AppCompatActivity {
-    private static final int CAMERA_REQUEST = 501;
+    private static final int CAMERA_REQUEST = 501;\n    private static final int CAMERA_PERMISSION_REQUEST = 502;
     private static final double PROTECTION_RATE = 0.15;
     private static final double STANDARD_DELIVERY = 199.99;
     private static final double PROTECTION_DELIVERY = 99.99;
@@ -80,10 +80,10 @@ public class MainActivity extends AppCompatActivity {
         scanButton.setText("SCAN PRICE");
         scanButton.setTextSize(19);
         scanButton.setMinHeight(dp(58));
-        scanButton.setOnClickListener(v -> openCamera());
+        scanButton.setOnClickListener(v -> beginScan());
         root.addView(scanButton);
 
-        scanStatus = text("Scanner ready", 13, false);
+        scanStatus = text("Scanner ready • Volume Down also starts scan", 13, false);
         scanStatus.setPadding(0, dp(6), 0, dp(14));
         root.addView(scanStatus);
 
@@ -177,14 +177,65 @@ public class MainActivity extends AppCompatActivity {
         return v;
     }
 
-    private void openCamera() {
-        Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        if (intent.resolveActivity(getPackageManager()) == null) {
-            Toast.makeText(this, "No camera app is available.", Toast.LENGTH_SHORT).show();
-            return;
+    private void beginScan() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            openCamera();
+        } else {
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.CAMERA},
+                    CAMERA_PERMISSION_REQUEST
+            );
         }
-        scanStatus.setText("Take a clear photo of the price tag.");
-        startActivityForResult(intent, CAMERA_REQUEST);
+    }
+
+    private void openCamera() {
+        try {
+            Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            if (intent.resolveActivity(getPackageManager()) == null) {
+                scanStatus.setText("No camera app is available.");
+                Toast.makeText(this, "No camera app is available.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            scanStatus.setText("Take a clear photo of the price tag.");
+            startActivityForResult(intent, CAMERA_REQUEST);
+        } catch (SecurityException e) {
+            scanStatus.setText("Camera permission is required to scan prices.");
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.CAMERA},
+                    CAMERA_PERMISSION_REQUEST
+            );
+        } catch (Exception e) {
+            scanStatus.setText("Could not open camera. You can still enter the price manually.");
+            Toast.makeText(this, "Could not open camera", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(
+            int requestCode,
+            @NonNull String[] permissions,
+            @NonNull int[] grantResults
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == CAMERA_PERMISSION_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                openCamera();
+            } else {
+                scanStatus.setText("Camera permission was not granted. Enter a price manually or enable Camera permission in Settings.");
+                Toast.makeText(this, "Camera permission is needed for scanning.", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN && event.getRepeatCount() == 0) {
+            beginScan();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
     }
 
     @Override
