@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- scanner brackets -->
+    <path
+        android:pathData="M20,34 L20,24 Q20,19 25,19 L35,19"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M73,19 L83,19 Q88,19 88,24 L88,34"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M20,74 L20,84 Q20,89 25,89 L35,89"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M73,89 L83,89 Q88,89 88,84 L88,74"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- sofa back -->
+    <path
+        android:pathData="M29,48 Q29,42 35,42 L73,42 Q79,42 79,48 L79,67 L29,67 Z"
+        android:fillColor="#FFF7E8" />
+
+    <!-- sofa arms -->
+    <path
+        android:pathData="M25,52 Q20,52 20,58 L20,68 Q20,76 28,76 L34,76 L34,55 Q30,52 25,52 Z"
+        android:fillColor="#FFF7E8" />
+    <path
+        android:pathData="M83,52 Q88,52 88,58 L88,68 Q88,76 80,76 L74,76 L74,55 Q78,52 83,52 Z"
+        android:fillColor="#FFF7E8" />
+
+    <!-- seat cushions -->
+    <path
+        android:pathData="M31,58 Q31,54 35,54 L52,54 Q55,54 55,58 L55,68 Q55,72 51,72 L35,72 Q31,72 31,68 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M56,58 Q56,54 60,54 L73,54 Q77,54 77,58 L77,68 Q77,72 73,72 L60,72 Q56,72 56,68 Z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- pillow -->
+    <path
+        android:pathData="M34,48 Q34,45 37,45 L46,45 Q49,45 49,48 L49,58 Q49,61 46,61 L37,61 Q34,61 34,58 Z"
+        android:fillColor="#FFB52E" />
+
+    <!-- legs -->
+    <path android:pathData="M31,75 L36,75 L34,83 L30,83 Z" android:fillColor="#B97428" />
+    <path android:pathData="M72,75 L77,75 L78,83 L74,83 Z" android:fillColor="#B97428" />
+
+    <!-- green price tag -->
+    <path
+        android:pathData="M61,38 L75,34 Q78,33 80,36 L87,47 Q88,49 87,52 L81,67 Q80,70 77,70 L63,66 Q60,65 59,62 L56,49 Q55,46 58,43 Z"
+        android:fillColor="#14C97A" />
+
+    <!-- tag hole -->
+    <path
+        android:pathData="M75,40 A3,3 0,1 0,75.1 40"
+        android:fillColor="#0A63D8" />
+
+    <!-- tag loop -->
+    <path
+        android:pathData="M76,38 Q82,31 86,37"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round" />
+
+    <!-- dollar sign -->
+    <path
+        android:pathData="M71,46 L71,61 M76,49 Q74,46 70,47 Q66,48 68,52 Q69,54 73,55 Q77,56 76,60 Q75,64 70,64 Q66,64 64,61"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
